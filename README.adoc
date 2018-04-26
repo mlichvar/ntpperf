@@ -1,0 +1,169 @@
+= ntpperf
+
+`ntpperf` is a tool for measuring performance of NTP servers and PTP masters.
+It simulates NTP clients or PTP slaves sending requests at an increasing rate
+and prints how many responses were received and lost. If the computer running
+`ntpperf` has an accurate clock and the network delay to the server/master is
+constant and known (e.g. there is a direction connection), it can also show how
+does the accuracy of the transmit timestamp change with increasing rate of
+requests.
+
+`ntpperf` generates and processes raw Ethernet frames using `libpcap`. Requests
+from the simulated clients/slaves have source addresses from a specified
+private IPv4 network. The server/master and/or network needs to be configured
+to route the responses to the computer running `ntpperf`, which should drop
+them (ideally in the raw table of iptables to minimize the time wasted in the
+networking stack).
+
+== Usage
+
+```
+Usage: ./ntpperf MODE NETWORK-OPTIONS [OTHER-OPTIONS]
+
+Mode:
+        -B              send NTP client requests in basic mode
+        -I              send NTP client requests in interleaved mode
+        -D DOMAIN       send PTP delay requests
+        -N DOMAIN       send PTP NetSync Monitor (NSM) requests
+
+Network options:
+        -i INTERFACE    specify network interface
+        -s NETWORK/BITS specify source IPv4 network
+        -d IP-ADDRESS   specify destination IPv4 address
+        -m MAC          specify destination MAC address
+
+Other options:
+        -r RATE[-RATE]  specify minimum and maximum rate (1000-1000000)
+        -e              make transmit interval exponentially distributed
+        -l              allow late transmissions
+        -x MULT         specify rate multiplier (1.5)
+        -t INTERVAL     specify sampling interval (2.0 seconds)
+        -o CORRECTION   print offset between remote TX and local RX timestamp
+                        with specified correction (e.g. network and RX delay)
+        -H              enable HW timestamping for TX offset statistics
+        -h              print this help message
+```
+
+== Example
+
+In this example `ntpperf` runs on a computer with address 192.168.123.2. It is
+configured to drop all UDP packets sent to the network 172.18.0.0/16:
+
+```
+# iptables -t raw -A PREROUTING -p udp -m udp -d 172.18.0.0/16 -j DROP
+```
+
+An NTP server and PTP master is running on 192.168.123.1. The MAC address of
+its interface is AA:BB:CC:DD:EE:FF. It is configured to route the responses to
+192.168.123.2:
+
+```
+# ip route add 172.18.0.0/16 via 192.168.123.2 dev eth0
+```
+
+The following test measures the throughput of the NTP server in the basic mode
+and accuracy of server's transmit timestamps relative to the local hardware
+clock of eth0 assuming a network delay and RX+TX compensation of 1.45
+microseconds:
+
+```
+# ./ntpperf -i eth0 -m AA:BB:CC:DD:EE:FF -d 192.168.123.1 -s 172.18.0.0/16 -B -o 1.45e-6 -H
+               |          responses            |     TX timestamp offset (ns)
+rate   clients |  lost invalid   basic  xleave |    min    mean     max    rms
+1000       100   0.00%   0.00% 100.00%   0.00%    +9705  +10640  +11360  10644
+1500       150   0.00%   0.00% 100.00%   0.00%    +5384  +10631  +11503  10639
+2250       225   0.00%   0.00% 100.00%   0.00%    +2368  +10151  +23714  10321
+3375       337   0.00%   0.00% 100.00%   0.00%    +3925   +6045  +23554   6366
+5062       506   0.00%   0.00% 100.00%   0.00%    +3731   +5868  +19286   6363
+7593       759   0.00%   0.00% 100.00%   0.00%    +2327   +5570  +19229   6095
+11389     1138   0.00%   0.00% 100.00%   0.00%    +2586   +4318  +18573   4515
+17083     1708   0.00%   0.00% 100.00%   0.00%    +2671   +3933  +17618   3947
+25624     2562   0.00%   0.00% 100.00%   0.00%    +2351   +4030  +16351   4035
+38436     3843   0.00%   0.00% 100.00%   0.00%    +2344   +3157  +12281   3178
+57654     5765   0.00%   0.00% 100.00%   0.00%    +2294   +2804  +16928   2805
+86481     8648   0.07%   0.00%  99.93%   0.00%    +2267   +2738  +17806   2769
+129721   12972   0.00%   0.00% 100.00%   0.00%    +2268   +2678  +46715   2771
+194581   16384   0.00%   0.00% 100.00%   0.00%    +2247   +2652  +33255   2925
+291871   16384   0.17%   0.00%  99.83%   0.00%    +2215   +2497  +24722   2582
+437806   16384  21.17%   0.00%  78.83%   0.00%    +2201   +2616  +30101   3021
+656709   16384  48.98%   0.00%  51.02%   0.00%    +2209   +2628  +51856   3212
+Could not send requests at rate 985063
+```
+
+The following test measures the performance of the NTP server in the
+interleaved mode:
+
+```
+# ./ntpperf -i eth0 -m AA:BB:CC:DD:EE:FF -d 192.168.123.1 -s 172.18.0.0/16 -I -o 1.45e-6 -H
+               |          responses            |     TX timestamp offset (ns)
+rate   clients |  lost invalid   basic  xleave |    min    mean     max    rms
+1000       100   0.00%   0.00%   0.00% 100.00%      -68      -4     +66     26
+1500       150   0.00%   0.00%   0.00% 100.00%      -59      +3     +66     25
+2250       225   0.00%   0.00%   0.00% 100.00%      -70      -7     +68     27
+3375       337   0.00%   0.00%   0.00% 100.00%      -82     -16     +55     30
+5062       506   0.00%   0.00%   0.00% 100.00%      -82     -18     +53     31
+7593       759   0.00%   0.00%   0.00% 100.00%      -76      -7     +63     26
+11389     1138   0.00%   0.00%   0.00% 100.00%      -72     -12     +49     27
+17083     1708   0.00%   0.00%   0.00% 100.00%      -74     -14     +46     28
+25624     2562   0.00%   0.00%   0.00% 100.00%      -82     -13     +48     28
+38436     3843   0.00%   0.00%   0.00% 100.00%      -81     -12     +51     28
+57654     5765   0.00%   0.00%   0.00% 100.00%     -109     -35   +2083     44
+86481     8648   0.10%   0.00%   0.00%  99.90%     -101     -20   +5412    102
+129721   12972  24.80%   0.00%   0.00%  75.20%      -89   +1128  +25196   2162
+194581   16384  49.23%   0.00%   0.00%  50.77%      -90   +2050  +30693   3026
+291871   16384  62.42%   0.00%   0.00%  37.58%      -94   +2547  +55663   3272
+```
+
+The following test measures the throughput of the PTP master using delay
+requests:
+
+```
+# ./ntpperf -i eth0 -m AA:BB:CC:DD:EE:FF -d 192.168.123.1 -s 172.18.0.0/16 -D 0
+               |          responses            |     TX timestamp offset (ns)
+rate   clients |  lost invalid   delay sync/fw |    min    mean     max    rms
+1000       100   0.00%   0.00% 100.00%   0.00%
+1500       150   0.00%   0.00% 100.00%   0.00%
+2250       225   0.00%   0.00% 100.00%   0.00%
+3375       337   0.00%   0.00% 100.00%   0.00%
+5062       506   0.00%   0.00% 100.00%   0.00%
+7593       759   0.00%   0.00% 100.00%   0.00%
+11389     1138   0.00%   0.00% 100.00%   0.00%
+17083     1708   0.00%   0.00% 100.00%   0.00%
+25624     2562   0.00%   0.00% 100.00%   0.00%
+38436     3843   0.00%   0.00% 100.00%   0.00%
+57654     5765   0.01%   0.00%  99.99%   0.00%
+86481     8648   0.04%   0.00%  99.96%   0.00%
+129721   12972   0.00%   0.00% 100.00%   0.00%
+194581   16384   0.08%   0.00%  99.92%   0.00%
+291871   16384   0.09%   0.00%  99.91%   0.00%
+437806   16384  80.90%   0.00%  19.10%   0.00%
+```
+
+And this test measures the performance of the PTP master using NetSync Monitor
+requests:
+
+```
+# ./ntpperf -i eth0 -m AA:BB:CC:DD:EE:FF -d 192.168.123.1 -s 172.18.0.0/16 -N 0 -o 1.45e-6 -H
+               |          responses            |     TX timestamp offset (ns)
+rate   clients |  lost invalid   delay sync/fw |    min    mean     max    rms
+1000       100   0.00%   0.00% 100.00% 100.00%      -14      -2      -1      4
+1500       150   0.00%   0.00% 100.00% 100.00%      -14      -5      -1      7
+2250       225   0.00%   0.00% 100.00% 100.00%      -14      -5      -1      7
+3375       337   0.00%   0.00% 100.00% 100.00%      -14      -6      -1      9
+5062       506   0.00%   0.00% 100.00% 100.00%      -14      -8      -1     10
+7593       759   0.00%   0.00% 100.00% 100.00%      -14      -8      -1     10
+11389     1138   0.00%   0.00% 100.00% 100.00%      -14     -11      -1     12
+17083     1708   0.00%   0.00% 100.00% 100.00%      -14     -11      -1     12
+25624     2562   0.42%   0.00%  99.79%  99.79%      -27     -14     -14     14
+38436     3843   0.00%   0.00% 100.00% 100.00%      -27     -14     -14     14
+57654     5765   0.44%   0.00%  99.78%  99.78%      -27     -14     -14     14
+86481     8648  52.45%   0.00%  73.83%  73.72%      -27     -14     -14     14
+```
+
+== Author
+
+Miroslav Lichvar <mlichvar@redhat.com>
+
+== License
+
+GPLv2+
