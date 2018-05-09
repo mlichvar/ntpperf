@@ -504,6 +504,7 @@ int main(int argc, char **argv) {
 	int opt;
 
 	srandom(time(NULL));
+	setvbuf(stdout, NULL, _IOLBF, BUFSIZ);
 
 	memset(&config, 0, sizeof config);
 	config.mode = INVALID_MODE;
