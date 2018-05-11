@@ -44,6 +44,7 @@ struct config {
 	int ptp_domain;
 	int min_rate;
 	int max_rate;
+	unsigned int senders;
 	bool exp_distribution;
 	bool allow_late_tx;
 	double multiplier;
@@ -320,11 +321,12 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 	return true;
 }
 
-static bool measure_perf(struct config *config, pcap_t *pcap, int sender, int rate,
+static bool measure_perf(struct config *config, pcap_t *pcap, int *senders, int rate,
 			 struct perf_stats *stats) {
-	struct sender_request requests[MAX_SENDER_REQUESTS];
+	struct sender_request requests[config->senders][MAX_SENDER_REQUESTS];
 	struct client clients[MAX_CLIENTS];
-	unsigned int i, num_clients, interval, client_index = 0;
+	int num_requests[config->senders];
+	unsigned int i, num_clients, interval, sender_index = 0, client_index = 0;
 	struct pcap_pkthdr *header;
 	const u_char *data;
 	struct timespec tx_next, max_tx_ahead, now, tx_end, rx_end;
@@ -366,7 +368,10 @@ static bool measure_perf(struct config *config, pcap_t *pcap, int sender, int ra
 		if (compare_ts(&now, &rx_end) > 0)
 			break;
 
-		for (i = 0; i < MAX_SENDER_REQUESTS; i++) {
+		for (i = 0; i < config->senders; i++)
+			num_requests[i] = 0;
+
+		for (i = 0; i < MAX_SENDER_REQUESTS * config->senders; i++) {
 			if (compare_ts(&tx_next, &tx_end) > 0 ||
 			    compare_ts(&tx_next, &max_tx_ahead) > 0)
 				break;
@@ -376,22 +381,27 @@ static bool measure_perf(struct config *config, pcap_t *pcap, int sender, int ra
 				return false;
 			}
 
-			make_request(&requests[i], &clients[client_index], client_index,
-				     config, &tx_next);
+			make_request(&requests[sender_index][num_requests[sender_index]++],
+				     &clients[client_index], client_index, config, &tx_next);
 
 			if (clients[client_index].warmup)
 				clients[client_index].warmup--;
 			if (!clients[client_index].warmup)
 				stats->requests++;
 
+			sender_index = (sender_index + 1) % config->senders;
 			client_index = (client_index + 1) % num_clients;
 
 			add_nsec_to_ts(&tx_next, !config->exp_distribution ? interval :
 				       interval * -log((random() & 0x7fffffff) / 2147483647.0));
 		}
 
-		if (i && !sender_send_requests(sender, requests, i))
-			return false;
+		for (i = 0; i < config->senders; i++) {
+			if (num_requests[i] == 0)
+				continue;
+			if (!sender_send_requests(senders[i], requests[i], num_requests[i]))
+				return false;
+		}
 
 		while (pcap_next_ex(pcap, &header, &data)) {
 			process_response(header, data, config, stats, clients, num_clients);
@@ -447,7 +457,7 @@ static bool run_perf(struct config *config) {
 	struct sender_config sender_config;
 	struct perf_stats stats;
 	pcap_t *pcap;
-	int sender, rate;
+	int i, rate, senders[config->senders];
 	bool ret = true;
 
 	sender_config.mode = config->mode;
@@ -464,16 +474,20 @@ static bool run_perf(struct config *config) {
 
 	sender_config.sock_fd = pcap_fileno(pcap);
 
-	sender = sender_start(&sender_config);
-	if (!sender) {
-		pcap_close(pcap);
-		return false;
+	for (i = 0; i < config->senders; i++) {
+		senders[i] = sender_start(&sender_config);
+		if (!senders[i]) {
+			for (i--; i >= 0; i--)
+				sender_stop(senders[i]);
+			pcap_close(pcap);
+			return false;
+		}
 	}
 
 	print_header(config);
 
 	for (rate = config->min_rate; rate <= config->max_rate; rate *= config->multiplier) {
-		ret = measure_perf(config, pcap, sender, rate, &stats);
+		ret = measure_perf(config, pcap, senders, rate, &stats);
 		if (!ret)
 			break;
 
@@ -484,7 +498,8 @@ static bool run_perf(struct config *config) {
 			break;
 	}
 
-	sender_stop(sender);
+	for (i = 0; i < config->senders; i++)
+		sender_stop(senders[i]);
 	pcap_close(pcap);
 
 	return ret;
@@ -508,10 +523,11 @@ int main(int argc, char **argv) {
 	config.mode = INVALID_MODE;
 	config.min_rate = 1000;
 	config.max_rate = 1000000;
+	config.senders = 1;
 	config.multiplier = 1.5;
 	config.sampling_interval = 2.0;
 
-	while ((opt = getopt(argc, argv, "BID:N:i:s:d:m:r:elt:x:o:Hh")) != -1) {
+	while ((opt = getopt(argc, argv, "BID:N:i:s:d:m:r:p:elt:x:o:Hh")) != -1) {
 		switch (opt) {
 			case 'B':
 				config.mode = NTP_BASIC;
@@ -560,6 +576,9 @@ int main(int argc, char **argv) {
 					config.min_rate = config.max_rate = atoi(optarg);
 				}
 				break;
+			case 'p':
+				config.senders = atoi(optarg);
+				break;
 			case 'e':
 				config.exp_distribution = true;
 				break;
@@ -585,7 +604,8 @@ int main(int argc, char **argv) {
 
 	if (config.mode == INVALID_MODE || !config.interface || !config.dst_mac[1] ||
 	    !config.dst_address || config.src_bits < 8 || config.src_bits > 32 ||
-	    config.min_rate < 1 || config.multiplier < 1.001 || config.sampling_interval < 0.2)
+	    config.min_rate < 1 || config.multiplier < 1.001 || config.sampling_interval < 0.2 ||
+	    config.senders < 1 || config.senders > 16)
 		goto err;
 
 	if (!is_local_network(config.dst_address, 32) ||
@@ -609,6 +629,7 @@ err:
 	fprintf(stderr, "\t-m MAC          specify destination MAC address\n");
 	fprintf(stderr, "\nOther options:\n");
 	fprintf(stderr, "\t-r RATE[-RATE]  specify minimum and maximum rate (1000-1000000)\n");
+	fprintf(stderr, "\t-p NUMBER       specify number of processes to send requests (1)\n");
 	fprintf(stderr, "\t-e              make transmit interval exponentially distributed\n");
 	fprintf(stderr, "\t-l              allow late transmissions\n");
 	fprintf(stderr, "\t-x MULT         specify rate multiplier (1.5)\n");
