@@ -170,7 +170,7 @@ static bool run_sender(int perf_fd, struct sender_config *config) {
 
 int sender_start(struct sender_config *config) {
 	pid_t pid;
-	int fds[2];
+	int fd, fds[2];
 	bool ret;
 
 	if (pipe2(fds, O_DIRECT)) {
@@ -190,7 +190,10 @@ int sender_start(struct sender_config *config) {
 		return fds[1];
 	}
 
-	close(fds[1]);
+	for (fd = 3; fd < 100; fd++) {
+		if (fd != fds[0] && fd != config->sock_fd)
+			close(fd);
+	}
 
 	ret = run_sender(fds[0], config);
 
