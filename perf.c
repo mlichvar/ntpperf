@@ -514,7 +514,7 @@ static bool is_local_network(uint32_t net, int bits) {
 int main(int argc, char **argv) {
 	struct config config;
 	char *s;
-	int opt;
+	int opt, dst_mac_set = 0;
 
 	srandom(time(NULL));
 	setvbuf(stdout, NULL, _IOLBF, BUFSIZ);
@@ -566,6 +566,7 @@ int main(int argc, char **argv) {
 					   config.dst_mac + 2, config.dst_mac + 3,
 					   config.dst_mac + 4, config.dst_mac + 5) != 6)
 					goto err;
+				dst_mac_set = 1;
 				break;
 			case 'r':
 				if ((s = strchr(optarg, '-'))) {
@@ -602,7 +603,7 @@ int main(int argc, char **argv) {
 		}
 	}
 
-	if (config.mode == INVALID_MODE || !config.interface || !config.dst_mac[1] ||
+	if (config.mode == INVALID_MODE || !config.interface || !dst_mac_set ||
 	    !config.dst_address || config.src_bits < 8 || config.src_bits > 32 ||
 	    config.min_rate < 1 || config.multiplier < 1.001 || config.sampling_interval < 0.2 ||
 	    config.senders < 1 || config.senders > 16)
