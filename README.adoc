@@ -4,7 +4,7 @@
 It simulates NTP clients or PTP slaves sending requests at an increasing rate
 and prints how many responses were received and lost. If the computer running
 `ntpperf` has an accurate clock and the network delay to the server/master is
-constant and known (e.g. there is a direction connection), it can also show how
+constant and known (e.g. there is a direct connection), it can also show how
 does the accuracy of the transmit timestamp change with increasing rate of
 requests.
 
