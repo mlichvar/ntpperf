@@ -220,7 +220,7 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 	switch (config->mode) {
 	case NTP_BASIC:
 	case NTP_INTERLEAVED:
-		valid = header->caplen >= 90 && src_port == 123 && (data[0] & 0xc7) == 0x4 &&
+		valid = header->caplen >= 90 && src_port == 123 && (data[0] & 0x7) == 0x4 &&
 			(*(uint64_t *)(data + 24) & -2ULL) == (client->local_id & -2ULL);
 		if (valid) {
 			if (config->mode == NTP_INTERLEAVED)
