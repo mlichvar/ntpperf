@@ -51,6 +51,10 @@ struct config {
 	double sampling_interval;
 	double offset_correction;
 	bool hw_timestamping;
+	struct {
+		const char *c2s;
+		const char *cookie;
+	} nts;
 };
 
 struct client {
@@ -221,7 +225,8 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 	case NTP_BASIC:
 	case NTP_INTERLEAVED:
 		valid = header->caplen >= 90 && src_port == 123 && (data[0] & 0x7) == 0x4 &&
-			(*(uint64_t *)(data + 24) & -2ULL) == (client->local_id & -2ULL);
+			(*(uint64_t *)(data + 24) & -2ULL) == (client->local_id & -2ULL) &&
+			(!config->nts.cookie || header->len > 90 + 4 + 32 + 4 + 16 + 16 + 4);
 		if (valid) {
 			if (config->mode == NTP_INTERLEAVED)
 				client->remote_id = *(uint64_t *)(data + 32);
@@ -467,6 +472,8 @@ static bool run_perf(struct config *config) {
 	memcpy(sender_config.dst_mac, config->dst_mac, 6);
 	sender_config.dst_address = config->dst_address;
 	sender_config.ptp_domain = config->ptp_domain;
+	sender_config.nts.c2s = config->nts.c2s;
+	sender_config.nts.cookie = config->nts.cookie;
 
 	pcap = open_pcap(config);
 	if (!pcap)
@@ -527,7 +534,7 @@ int main(int argc, char **argv) {
 	config.multiplier = 1.5;
 	config.sampling_interval = 2.0;
 
-	while ((opt = getopt(argc, argv, "BID:N:i:s:d:m:r:p:elt:x:o:Hh")) != -1) {
+	while ((opt = getopt(argc, argv, "BID:N:i:s:d:m:r:p:elt:x:o:HS:h")) != -1) {
 		switch (opt) {
 			case 'B':
 				config.mode = NTP_BASIC;
@@ -598,6 +605,15 @@ int main(int argc, char **argv) {
 			case 'H':
 				config.hw_timestamping = true;
 				break;
+#ifdef NTS
+			case 'S':
+				if (!optarg || !(s = strchr(optarg, ',')))
+					goto err;
+				*s = '\0';
+				config.nts.c2s = optarg;
+				config.nts.cookie = s + 1;
+				break;
+#endif
 			default:
 				goto err;
 		}
@@ -638,6 +654,9 @@ err:
 	fprintf(stderr, "\t-o CORRECTION   print offset between remote TX and local RX timestamp\n");
 	fprintf(stderr, "\t                with specified correction (e.g. network and RX delay)\n");
 	fprintf(stderr, "\t-H              enable HW timestamping for TX offset statistics\n");
+#ifdef NTS
+	fprintf(stderr, "\t-S C2S,COOKIE   authenticate NTP requests with NTS\n");
+#endif
 	fprintf(stderr, "\t-h              print this help message\n");
 	return 1;
 }

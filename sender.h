@@ -40,6 +40,10 @@ struct sender_config {
 	char dst_mac[6];
 	uint32_t dst_address;
 	int ptp_domain;
+	struct {
+		const char *c2s;
+		const char *cookie;
+	} nts;
 };
 
 struct sender_request {

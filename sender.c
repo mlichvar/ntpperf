@@ -27,13 +27,92 @@
 #include <sys/wait.h>
 #include <signal.h>
 
+#ifdef NTS
+#include <gnutls/crypto.h>
+#endif
+
 #include "sender.h"
 
+#ifdef NTS
+#define MAX_PACKET_LENGTH 512
+#else
 #define MAX_PACKET_LENGTH 128
+#endif
+
 #define MAX_PACKETS 128
 
+struct nts_context {
+	int cookie_len;
+#ifdef NTS
+	unsigned char cookie[256];
+	gnutls_aead_cipher_hd_t cipher;
+#endif
+};
+
+#ifdef NTS
+static unsigned int convert_hex_to_bytes(const char *hex, void *buf, unsigned int len) {
+	char *p, byte[3];
+	unsigned int i;
+
+	for (i = 0; i < len && *hex != '\0'; i++) {
+		byte[0] = *hex++;
+		if (*hex == '\0')
+			return 0;
+		byte[1] = *hex++;
+		byte[2] = '\0';
+		((char *)buf)[i] = strtol(byte, &p, 16);
+
+		if (p != byte + 2)
+			return 0;
+	}
+
+	return *hex == '\0' ? i : 0;
+}
+#endif
+
+static bool initialize_nts(struct sender_config *config, struct nts_context *nts) {
+#ifdef NTS
+	unsigned char key[256];
+	gnutls_datum_t datum;
+
+	if (!config->nts.c2s || !config->nts.cookie ||
+	    !(config->mode == NTP_BASIC || config->mode == NTP_INTERLEAVED)) {
+		nts->cookie_len = 0;
+		nts->cipher = NULL;
+		return true;
+	}
+
+	nts->cookie_len = convert_hex_to_bytes(config->nts.cookie,
+					       nts->cookie, sizeof nts->cookie);
+	if (nts->cookie_len == 0 || nts->cookie_len % 4 != 0) {
+		fprintf(stderr, "Invalid cookie length %d\n", nts->cookie_len);
+		return false;
+	}
+
+	datum.data = key;
+	datum.size = convert_hex_to_bytes(config->nts.c2s, key, sizeof key);
+
+	if (gnutls_aead_cipher_init(&nts->cipher, GNUTLS_CIPHER_AES_128_SIV, &datum) < 0) {
+		fprintf(stderr, "Invalid key length: %d\n", datum.size);
+		return false;
+	}
+
+#else
+	nts->cookie_len = 0;
+#endif
+	return true;
+}
+
+static void destroy_nts(struct nts_context *nts) {
+#ifdef NTS
+	if (nts->cipher)
+		gnutls_aead_cipher_deinit(nts->cipher);
+#endif
+}
+
 static int make_packet(struct sender_request *request, struct sender_config *config,
-		       unsigned char *buf, int max_len) {
+		       struct nts_context *nts, unsigned char *buf, int max_len) {
+	unsigned char *auth = NULL;
 	uint32_t sum = 0;
 	uint16_t carry;
 	int i, len = 0, data_len, src_port, dst_port;
@@ -44,6 +123,8 @@ static int make_packet(struct sender_request *request, struct sender_config *con
 		src_port = 32768 + random() % 28000;
 		dst_port = 123;
 		data_len = 48;
+		if (nts->cookie_len > 0)
+			data_len += 4 + 32 + 4 + nts->cookie_len + 4 + 4 + 16 + 16;
 		break;
 	case PTP_DELAY:
 	case PTP_NSM:
@@ -83,6 +164,8 @@ static int make_packet(struct sender_request *request, struct sender_config *con
 	*(uint16_t *)(buf + 4) = htons(8 + data_len);
 	buf += 8, len += 8;
 
+	assert(max_len >= len + data_len);
+
 	switch (config->mode) {
 	case NTP_BASIC:
 	case NTP_INTERLEAVED:
@@ -90,6 +173,7 @@ static int make_packet(struct sender_request *request, struct sender_config *con
 		*(uint64_t *)(buf + 24) = request->remote_id;
 		*(uint64_t *)(buf + 32) = request->local_id ^ 1;
 		*(uint64_t *)(buf + 40) = request->local_id;
+		auth = buf + 48;
 		break;
 	case PTP_NSM:
 		*(uint32_t *)(buf + 44) = htonl(0x21fe0000);
@@ -106,6 +190,42 @@ static int make_packet(struct sender_request *request, struct sender_config *con
 		assert(0);
 	}
 
+	if (auth && nts->cookie_len > 0) {
+#ifdef NTS
+		size_t clen;
+
+		/* Unique Identifier */
+		*(uint16_t *)(auth + 0) = htons(0x0104);
+		*(uint16_t *)(auth + 2) = htons(4 + 32);
+		*(uint32_t *)(auth + 4) = random();
+		*(uint32_t *)(auth + 8) = random();
+		auth += 4 + 32;
+
+		/* Cookie */
+		*(uint16_t *)(auth + 0) = htons(0x0204);
+		*(uint16_t *)(auth + 2) = htons(4 + nts->cookie_len);
+		memcpy(auth + 4, nts->cookie, nts->cookie_len);
+		auth += 4 + nts->cookie_len;
+
+		/* Authenticator */
+		*(uint16_t *)(auth + 0) = htons(0x0404);
+		*(uint16_t *)(auth + 2) = htons(4 + 4 + 16 + 16);
+		*(uint16_t *)(auth + 4) = htons(16);
+		*(uint16_t *)(auth + 6) = htons(16);
+		*(uint32_t *)(auth + 8) = random();
+		*(uint32_t *)(auth + 12) = random();
+		*(uint32_t *)(auth + 16) = random();
+		*(uint32_t *)(auth + 20) = random();
+		clen = 16;
+		if (gnutls_aead_cipher_encrypt(nts->cipher,
+					       auth + 4 + 4, 16, buf, auth - buf, 0,
+					       "", 0, auth + 4 + 4 + 16, &clen) < 0 ||
+		    clen != 16)
+			assert(0);
+		auth += 4 + 4 + 16 + 16;
+#endif
+	}
+
 	return len + data_len;
 }
 
@@ -114,8 +234,12 @@ static bool run_sender(int perf_fd, struct sender_config *config) {
 	struct mmsghdr msg_headers[MAX_PACKETS];
 	unsigned char packets[MAX_PACKETS][MAX_PACKET_LENGTH];
 	struct iovec msg_iovs[MAX_PACKETS];
+	struct nts_context nts;
 	struct timespec now;
 	int i, j, r, n, next_tx, sent = 0;
+
+	if (!initialize_nts(config, &nts))
+		return false;
 
 	while (1) {
 		r = read(perf_fd, requests, sizeof requests);
@@ -142,8 +266,8 @@ static bool run_sender(int perf_fd, struct sender_config *config) {
 
 				memset(&msg_headers[j], 0, sizeof msg_headers[j]);
 				msg_iovs[j].iov_base = packets[j];
-				msg_iovs[j].iov_len = make_packet(&requests[i], config, packets[j],
-								  sizeof packets[j]);
+				msg_iovs[j].iov_len = make_packet(&requests[i], config, &nts,
+								  packets[j], sizeof packets[j]);
 
 				msg_headers[j].msg_hdr.msg_iov = &msg_iovs[j];
 				msg_headers[j].msg_hdr.msg_iovlen = 1;
@@ -164,6 +288,8 @@ static bool run_sender(int perf_fd, struct sender_config *config) {
 			}
 		}
 	}
+
+	destroy_nts(&nts);
 
 	return true;
 }

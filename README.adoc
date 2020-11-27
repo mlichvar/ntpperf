@@ -15,6 +15,9 @@ to route the responses to the computer running `ntpperf`, which should drop
 them (ideally in the raw table of iptables to minimize the time wasted in the
 networking stack).
 
+Network Time Security (NTS) support using the `gnutls` library can be enabled
+by setting the `NTPPERF_NTS` environment variable for the build.
+
 == Usage
 
 ```
@@ -42,6 +45,7 @@ Other options:
         -o CORRECTION   print offset between remote TX and local RX timestamp
                         with specified correction (e.g. network and RX delay)
         -H              enable HW timestamping for TX offset statistics
+        -S C2S,COOKIE   authenticate NTP requests with NTS
         -h              print this help message
 ```
 
@@ -113,6 +117,32 @@ rate   clients |  lost invalid   basic  xleave |    min    mean     max    rms
 129721   12972  24.80%   0.00%   0.00%  75.20%      -89   +1128  +25196   2162
 194581   16384  49.23%   0.00%   0.00%  50.77%      -90   +2050  +30693   3026
 291871   16384  62.42%   0.00%   0.00%  37.58%      -94   +2547  +55663   3272
+```
+
+To test NTP performance with NTS authentication it is necessary to obtain a
+valid C2S key and cookie using a separate NTS-KE client. The AEAD algorithm is
+`AEAD_AES_SIV_CMAC_256` (15). The key and cookie are specified as hexadecimal
+numbers with the `-S` option:
+
+```
+# ./ntpperf -i eth0 -m AA:BB:CC:DD:EE:FF -d 192.168.123.1 -s 172.18.0.0/16 -B -S 44508CC523BD3FF2334A3B73E70969BF69BC4753EB745FD8EC054FF083DF788C,2D1FF1538B637C3DDE7A1AE23D0A1B104A8F68C6E1E1BB54A3139955BACE08307C2C3210F6A039A956A72038A42FBF3489EBFB207EDB6CDBFFF2B4F25818787D78CD170637475394A8E597827CC06D78E9CD6CED3D8573D69AA7E1303CB79C0499D7BB21
+               |          responses            |     TX timestamp offset (ns)
+rate   clients |  lost invalid   basic  xleave |    min    mean     max    rms
+1000       100   0.00%   0.00% 100.00%   0.00%
+1500       150   0.00%   0.00% 100.00%   0.00%
+2250       225   0.00%   0.00% 100.00%   0.00%
+3375       337   0.00%   0.00% 100.00%   0.00%
+5062       506   0.00%   0.00% 100.00%   0.00%
+7593       759   0.00%   0.00% 100.00%   0.00%
+11389     1138   0.00%   0.00% 100.00%   0.00%
+17083     1708   0.00%   0.00% 100.00%   0.00%
+25624     2562   0.00%   0.00% 100.00%   0.00%
+38436     3843   0.00%   0.00% 100.00%   0.00%
+57654     5765   0.00%   0.00% 100.00%   0.00%
+86481     8648   0.00%   0.00% 100.00%   0.00%
+129721   12972  25.46%   0.00%  74.54%   0.00%
+194581   16384  45.80%   0.00%  54.20%   0.00%
+291871   16384  67.26%   0.00%  32.74%   0.00%
 ```
 
 The following test measures the throughput of the PTP master using delay
