@@ -18,6 +18,24 @@ networking stack).
 Network Time Security (NTS) support using the `gnutls` library can be enabled
 by setting the `NTPPERF_NTS` environment variable for the build.
 
+== Installation
+
+=== On Centos/RHEL 7
+Install first all the dependencies to compile ntpperf
+```
+[root@centos7 ~]# yum install gcc make libpcap libpcap-devel
+```
+
+Once done, you can call make
+```
+[root@centos7 ~]# cd ntpperf/
+[root@centos7 ntpperf]# make
+cc -O2 -Wall -g -D_GNU_SOURCE  -c -o perf.o perf.c
+cc -O2 -Wall -g -D_GNU_SOURCE  -c -o sender.o sender.c
+cc -O2 -Wall -g -o ntpperf perf.o sender.o -lpcap -lm
+```
+You can know call `ntpperf`.
+
 == Usage
 
 ```
