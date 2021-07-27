@@ -189,9 +189,9 @@ static void make_request(struct sender_request *request, struct client *client, 
 static bool process_response(struct pcap_pkthdr *header, const u_char *data, struct config *config,
 			     struct perf_stats *stats, struct client *clients, int num_clients) {
 	struct client *client;
-	struct timespec rx = { .tv_sec = header->ts.tv_sec, .tv_nsec = header->ts.tv_usec };
-	struct timespec prev_rx, tx = {0};
-	uint64_t tx_ntp;
+	struct timespec local_rx = { .tv_sec = header->ts.tv_sec, .tv_nsec = header->ts.tv_usec };
+	struct timespec prev_local_rx, remote_tx = {0};
+	uint64_t ts_ntp;
 	uint32_t dst_address;
 	int src_port, ptp_type = 0;
 	bool valid;
@@ -219,7 +219,7 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 		return false;
 
 	client = &clients[(dst_address ^ config->src_network) % (uint32_t)num_clients];
-	prev_rx = client->local_rx;
+	prev_local_rx = client->local_rx;
 
 	switch (config->mode) {
 	case NTP_BASIC:
@@ -232,7 +232,7 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 				client->remote_id = *(uint64_t *)(data + 32);
 			else
 				client->remote_id = *(uint64_t *)(data + 40);
-			client->local_rx = rx;
+			client->local_rx = local_rx;
 		}
 		break;
 	case PTP_DELAY:
@@ -246,7 +246,7 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 			   (ptp_type == 8 && src_port == 320))));
 		if (valid) {
 			if (ptp_type == 0)
-				client->local_rx = rx;
+				client->local_rx = local_rx;
 			else
 				memset(&client->local_rx, 0, sizeof client->local_rx);
 		}
@@ -275,18 +275,18 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 			stats->interleaved_responses++;
 			if (config->mode != NTP_INTERLEAVED)
 				return true;
-			rx = prev_rx;
+			local_rx = prev_local_rx;
 		}
 
-		tx_ntp = be64toh(*(uint64_t *)(data + 40));
-		tx.tv_sec = (tx_ntp >> 32) - 2208988800;
-		tx.tv_nsec = (tx_ntp & 0xffffffffU) / 4.294967296;
+		ts_ntp = be64toh(*(uint64_t *)(data + 40));
+		remote_tx.tv_sec = (ts_ntp >> 32) - 2208988800;
+		remote_tx.tv_nsec = (ts_ntp & 0xffffffffU) / 4.294967296;
 		break;
 	case PTP_DELAY:
 	case PTP_NSM:
 		switch (ptp_type) {
 		case 8:
-			rx = prev_rx;
+			local_rx = prev_local_rx;
 			/* Fall through */
 		case 0:
 			/* TODO: handle reversed order of sync and followup */
@@ -295,9 +295,9 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 
 			stats->sync_responses++;
 
-			tx.tv_sec = (uint64_t)ntohs(*(uint16_t *)(data + 34)) << 32 |
-					ntohl(*(uint32_t *)(data + 36));
-			tx.tv_nsec = ntohl(*(uint32_t *)(data + 40));
+			remote_tx.tv_sec = (uint64_t)ntohs(*(uint16_t *)(data + 34)) << 32 |
+					    ntohl(*(uint32_t *)(data + 36));
+			remote_tx.tv_nsec = ntohl(*(uint32_t *)(data + 40));
 			break;
 		case 9:
 			stats->delay_responses++;
@@ -310,10 +310,10 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 		assert(0);
 	}
 
-	if (!rx.tv_sec || !tx.tv_sec)
+	if (!local_rx.tv_sec || !remote_tx.tv_sec)
 		return true;
 
-	offset = diff_ts(&rx, &tx) - config->offset_correction;
+	offset = diff_ts(&local_rx, &remote_tx) - config->offset_correction;
 
 	stats->offset_updates++;
 	stats->sum_offset += offset;
