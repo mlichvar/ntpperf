@@ -268,14 +268,14 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 	case NTP_BASIC:
 	case NTP_INTERLEAVED:
 		if (*(uint64_t *)(data + 24) == client->local_id) {
+			stats->basic_responses++;
 			if (config->mode != NTP_BASIC)
 				return true;
-			stats->basic_responses++;
 		} else {
+			stats->interleaved_responses++;
 			if (config->mode != NTP_INTERLEAVED)
 				return true;
 			rx = prev_rx;
-			stats->interleaved_responses++;
 		}
 
 		tx_ntp = be64toh(*(uint64_t *)(data + 40));
