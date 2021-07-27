@@ -175,6 +175,25 @@ static double diff_ts(struct timespec *ts1, struct timespec *ts2) {
 	return (ts1->tv_sec - ts2->tv_sec) + 1e-9 * (ts1->tv_nsec - ts2->tv_nsec);
 }
 
+static struct timespec convert_ntp_ts(uint64_t ntp_ts) {
+	struct timespec ts;
+
+	ntp_ts = be64toh(ntp_ts);
+	ts.tv_sec = (ntp_ts >> 32) - 2208988800;
+	ts.tv_nsec = (ntp_ts & 0xffffffffU) / 4.294967296;
+
+	return ts;
+}
+
+static struct timespec convert_ptp_ts(uint16_t hi, uint32_t mid, uint32_t lo) {
+	struct timespec ts;
+
+	ts.tv_sec = (uint64_t)ntohs(hi) << 32 | ntohl(mid);
+	ts.tv_nsec = ntohl(lo);
+
+	return ts;
+}
+
 static void make_request(struct sender_request *request, struct client *client, int index,
 			 struct config *config, struct timespec *when) {
 	request->when = *when;
@@ -191,7 +210,6 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 	struct client *client;
 	struct timespec local_rx = { .tv_sec = header->ts.tv_sec, .tv_nsec = header->ts.tv_usec };
 	struct timespec prev_local_rx, remote_tx = {0};
-	uint64_t ts_ntp;
 	uint32_t dst_address;
 	int src_port, ptp_type = 0;
 	bool valid;
@@ -278,9 +296,7 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 			local_rx = prev_local_rx;
 		}
 
-		ts_ntp = be64toh(*(uint64_t *)(data + 40));
-		remote_tx.tv_sec = (ts_ntp >> 32) - 2208988800;
-		remote_tx.tv_nsec = (ts_ntp & 0xffffffffU) / 4.294967296;
+		remote_tx = convert_ntp_ts(*(uint64_t *)(data + 40));
 		break;
 	case PTP_DELAY:
 	case PTP_NSM:
@@ -295,9 +311,9 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 
 			stats->sync_responses++;
 
-			remote_tx.tv_sec = (uint64_t)ntohs(*(uint16_t *)(data + 34)) << 32 |
-					    ntohl(*(uint32_t *)(data + 36));
-			remote_tx.tv_nsec = ntohl(*(uint32_t *)(data + 40));
+			remote_tx = convert_ptp_ts(*(uint16_t *)(data + 34),
+						   *(uint32_t *)(data + 36),
+						   *(uint32_t *)(data + 40));
 			break;
 		case 9:
 			stats->delay_responses++;
