@@ -60,6 +60,7 @@ struct config {
 struct client {
 	uint64_t remote_id;
 	uint64_t local_id;
+	struct timespec remote_rx;
 	struct timespec local_rx;
 	int warmup;
 };
@@ -209,7 +210,7 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 			     struct perf_stats *stats, struct client *clients, int num_clients) {
 	struct client *client;
 	struct timespec local_rx = { .tv_sec = header->ts.tv_sec, .tv_nsec = header->ts.tv_usec };
-	struct timespec prev_local_rx, remote_tx = {0};
+	struct timespec prev_local_rx, prev_remote_rx, remote_rx = {0}, remote_tx = {0};
 	uint32_t dst_address;
 	int src_port, ptp_type = 0;
 	bool valid;
@@ -237,6 +238,7 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 		return false;
 
 	client = &clients[(dst_address ^ config->src_network) % (uint32_t)num_clients];
+	prev_remote_rx = client->remote_rx;
 	prev_local_rx = client->local_rx;
 
 	switch (config->mode) {
@@ -253,6 +255,7 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 				client->remote_id = *(uint64_t *)(data + 32);
 			else
 				client->remote_id = *(uint64_t *)(data + 40);
+			client->remote_rx = convert_ntp_ts(*(uint64_t *)(data + 32));
 			client->local_rx = local_rx;
 		}
 		break;
@@ -268,11 +271,23 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 			 (config->mode == PTP_NSM &&
 			  ((ptp_type == 0 && src_port == 319) ||
 			   (ptp_type == 8 && src_port == 320))));
-		if (valid) {
-			if (ptp_type == 0)
-				client->local_rx = local_rx;
-			else
-				memset(&client->local_rx, 0, sizeof client->local_rx);
+		if (!valid)
+			break;
+
+		switch (ptp_type) {
+		case 0:
+			client->local_rx = local_rx;
+			break;
+		case 9:
+			client->remote_rx = convert_ptp_ts(*(uint16_t *)(data + 34),
+							   *(uint32_t *)(data + 36),
+							   *(uint32_t *)(data + 40));
+			/* Fall through */
+		case 8:
+			memset(&client->local_rx, 0, sizeof client->local_rx);
+			break;
+		default:
+			assert(0);
 		}
 		break;
 	default:
@@ -295,10 +310,12 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 			stats->basic_responses++;
 			if (config->mode != NTP_BASIC)
 				return true;
+			remote_rx = client->remote_rx;
 		} else {
 			stats->interleaved_responses++;
 			if (config->mode != NTP_INTERLEAVED)
 				return true;
+			remote_rx = prev_remote_rx;
 			local_rx = prev_local_rx;
 		}
 
@@ -317,6 +334,7 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 
 			stats->sync_responses++;
 
+			remote_rx = client->remote_rx;
 			remote_tx = convert_ptp_ts(*(uint16_t *)(data + 34),
 						   *(uint32_t *)(data + 36),
 						   *(uint32_t *)(data + 40));
@@ -332,10 +350,15 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 		assert(0);
 	}
 
-	if (!local_rx.tv_sec || !remote_tx.tv_sec)
-		return true;
-
-	offset = diff_ts(&local_rx, &remote_tx) - config->offset_correction;
+	if (config->offset_correction) {
+		if (!local_rx.tv_sec || !remote_tx.tv_sec)
+			return true;
+		offset = diff_ts(&local_rx, &remote_tx) - config->offset_correction;
+	} else {
+		if (!remote_tx.tv_sec || !remote_rx.tv_sec)
+			return true;
+		offset = diff_ts(&remote_tx, &remote_rx);
+	}
 
 	stats->offset_updates++;
 	stats->sum_offset += offset;
@@ -443,9 +466,20 @@ static bool measure_perf(struct config *config, pcap_t *pcap, int *senders, int 
 }
 
 static void print_header(struct config *config) {
-	printf("               |          responses            |     TX timestamp offset (ns)\n");
-	printf("rate   clients |  lost invalid %15s |    min    mean     max    rms\n",
-	       config->mode <= NTP_INTERLEAVED ? "basic  xleave" : "delay sync/fw");
+	int offset;
+
+	printf("               |          responses            |");
+
+	if (config->mode == PTP_DELAY)
+		offset = 0, printf("\n");
+	else if (config->offset_correction)
+		offset = 1, printf("     TX timestamp offset (ns)\n");
+	else
+		offset = 1, printf("        response time (ns)\n");
+
+	printf("rate   clients |  lost invalid %15s |%s\n",
+	       config->mode <= NTP_INTERLEAVED ? "basic  xleave" : "delay sync/fw",
+	       offset ? "    min    mean     max    rms" : "");
 }
 
 static int get_lost_packets(struct perf_stats *stats, struct config *config) {
@@ -472,7 +506,7 @@ static void print_stats(struct perf_stats *stats, struct config *config, int rat
 	       100.0 * stats->invalid_responses / stats->requests,
 	       100.0 * stats->basic_responses / stats->requests,
 	       100.0 * stats->interleaved_responses / stats->requests);
-	if (config->offset_correction && stats->offset_updates)
+	if (stats->offset_updates)
 		printf("  %+7.0f %+7.0f %+7.0f %6.0f",
 		       1e9 * stats->min_offset, 1e9 * stats->sum_offset / stats->offset_updates,
 		       1e9 * stats->max_offset, 1e9 * sqrt(stats->sum2_offset / stats->offset_updates));
