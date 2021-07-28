@@ -637,7 +637,7 @@ int main(int argc, char **argv) {
 
 	if (config.mode == INVALID_MODE || !config.interface || !dst_mac_set ||
 	    !config.dst_address || config.src_bits < 8 || config.src_bits > 32 ||
-	    config.min_rate < 1 || config.multiplier < 1.001 || config.sampling_interval < 0.2 ||
+	    config.min_rate < 1 || config.multiplier < 1.0 || config.sampling_interval < 0.2 ||
 	    config.senders < 1 || config.senders > 16)
 		goto err;
 
