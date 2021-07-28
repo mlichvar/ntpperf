@@ -242,7 +242,10 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 	switch (config->mode) {
 	case NTP_BASIC:
 	case NTP_INTERLEAVED:
-		valid = header->caplen >= 90 && src_port == 123 && (data[0] & 0x7) == 0x4 &&
+		if (src_port != 123)
+			return false;
+
+		valid = header->caplen >= 90 && (data[0] & 0x7) == 0x4 &&
 			(*(uint64_t *)(data + 24) & -2ULL) == (client->local_id & -2ULL) &&
 			(!config->nts.cookie || header->len > 90 + 4 + 32 + 4 + 16 + 16 + 4);
 		if (valid) {
@@ -255,6 +258,9 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 		break;
 	case PTP_DELAY:
 	case PTP_NSM:
+		if (src_port != 319 && src_port != 320)
+			return false;
+
 		ptp_type = data[0] & 0xf;
 		valid = header->caplen >= 86 && data[1] == 2 &&
 			*(uint16_t *)(data + 30) == (uint16_t)client->local_id &&
