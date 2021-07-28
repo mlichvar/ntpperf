@@ -380,13 +380,15 @@ static bool measure_perf(struct config *config, pcap_t *pcap, int *senders, int 
 
 	memset(clients, 0, sizeof clients);
 	for (i = 0; i < num_clients; i++)
-		clients[i].warmup = 3;
+		clients[i].warmup = 2 + 1;
 
 	clock_gettime(CLOCK_MONOTONIC, &now);
-	tx_next = tx_end = rx_end = now;
+	tx_next = tx_end = now;
 
-	add_nsec_to_ts(&tx_end, 1.0e9 * config->sampling_interval);
-	add_nsec_to_ts(&rx_end, 1.0e9 * config->sampling_interval + interval * num_clients);
+	add_nsec_to_ts(&tx_end, 1.0e9 * config->sampling_interval +
+				interval * num_clients * (clients[0].warmup - 1));
+	rx_end = tx_end;
+	add_nsec_to_ts(&rx_end, interval * num_clients);
 
 	while (1) {
 		max_tx_ahead = now;
