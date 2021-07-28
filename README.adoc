@@ -122,27 +122,29 @@ rate   clients |  lost invalid   basic  xleave |    min    mean     max    rms
 To test NTP performance with NTS authentication it is necessary to obtain a
 valid C2S key and cookie using a separate NTS-KE client. The AEAD algorithm is
 `AEAD_AES_SIV_CMAC_256` (15). The key and cookie are specified as hexadecimal
-numbers with the `-S` option:
+numbers with the `-S` option. Without the `-o` option the server response time
+(interval between remote RX and TX timestamps) is printed instead of the TX
+timestamp offset:
 
 ```
 # ./ntpperf -i eth0 -m AA:BB:CC:DD:EE:FF -d 192.168.123.1 -s 172.18.0.0/16 -B -S 44508CC523BD3FF2334A3B73E70969BF69BC4753EB745FD8EC054FF083DF788C,2D1FF1538B637C3DDE7A1AE23D0A1B104A8F68C6E1E1BB54A3139955BACE08307C2C3210F6A039A956A72038A42FBF3489EBFB207EDB6CDBFFF2B4F25818787D78CD170637475394A8E597827CC06D78E9CD6CED3D8573D69AA7E1303CB79C0499D7BB21
-               |          responses            |     TX timestamp offset (ns)
+               |          responses            |        response time (ns)
 rate   clients |  lost invalid   basic  xleave |    min    mean     max    rms
-1000       100   0.00%   0.00% 100.00%   0.00%
-1500       150   0.00%   0.00% 100.00%   0.00%
-2250       225   0.00%   0.00% 100.00%   0.00%
-3375       337   0.00%   0.00% 100.00%   0.00%
-5062       506   0.00%   0.00% 100.00%   0.00%
-7593       759   0.00%   0.00% 100.00%   0.00%
-11389     1138   0.00%   0.00% 100.00%   0.00%
-17083     1708   0.00%   0.00% 100.00%   0.00%
-25624     2562   0.00%   0.00% 100.00%   0.00%
-38436     3843   0.00%   0.00% 100.00%   0.00%
-57654     5765   0.00%   0.00% 100.00%   0.00%
-86481     8648   0.00%   0.00% 100.00%   0.00%
-129721   12972  25.46%   0.00%  74.54%   0.00%
-194581   16384  45.80%   0.00%  54.20%   0.00%
-291871   16384  67.26%   0.00%  32.74%   0.00%
+1000       100   0.00%   0.00% 100.00%   0.00%   +31893  +57758  +88423  57850
+1500       150   0.00%   0.00% 100.00%   0.00%   +12619  +46679  +69184  49219
+2250       225   0.00%   0.00% 100.00%   0.00%    +9450  +46134  +76975  48816
+3375       337   0.00%   0.00% 100.00%   0.00%    +7156  +47433  +79723  50829
+5062       506   0.00%   0.00% 100.00%   0.00%    +6851  +29748  +87753  35710
+7593       759   0.00%   0.00% 100.00%   0.00%    +6509  +26534  +92694  31802
+11389     1138   0.00%   0.00% 100.00%   0.00%    +6275  +18874  +93841  24262
+17083     1708   0.00%   0.00% 100.00%   0.00%    +5857  +12077  +96982  15423
+25624     2562   0.00%   0.00% 100.00%   0.00%    +4979  +10351  +87032  11207
+38436     3843   0.00%   0.00% 100.00%   0.00%    +4478  +10218  +57171  10717
+57654     5765   0.00%   0.00% 100.00%   0.00%    +4340  +12589 +101124  14008
+86481     8648   0.00%   0.00% 100.00%   0.00%    +4953  +15867 +121679  17392
+129721   12972   0.00%   0.00% 100.00%   0.00%    +4864  +28573 +464039  34431
+194581   16384  22.15%   0.00%  77.85%   0.00%  +7787878 +9667281 +11089226 9673262
+291871   16384  50.83%   0.00%  49.17%   0.00%  +7715586 +10667376 +12318831 10683412
 ```
 
 The following test measures the throughput of the PTP master using delay
@@ -150,8 +152,8 @@ requests:
 
 ```
 # ./ntpperf -i eth0 -m AA:BB:CC:DD:EE:FF -d 192.168.123.1 -s 172.18.0.0/16 -D 0
-               |          responses            |     TX timestamp offset (ns)
-rate   clients |  lost invalid   delay sync/fw |    min    mean     max    rms
+               |          responses            |
+rate   clients |  lost invalid   delay sync/fw |
 1000       100   0.00%   0.00% 100.00%   0.00%
 1500       150   0.00%   0.00% 100.00%   0.00%
 2250       225   0.00%   0.00% 100.00%   0.00%
