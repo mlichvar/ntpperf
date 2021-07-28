@@ -386,7 +386,7 @@ static bool measure_perf(struct config *config, pcap_t *pcap, int *senders, int 
 	tx_next = tx_end = rx_end = now;
 
 	add_nsec_to_ts(&tx_end, 1.0e9 * config->sampling_interval);
-	add_nsec_to_ts(&rx_end, 1.0e9 * config->sampling_interval + 0.1e9);
+	add_nsec_to_ts(&rx_end, 1.0e9 * config->sampling_interval + interval * num_clients);
 
 	while (1) {
 		max_tx_ahead = now;
