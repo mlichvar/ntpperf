@@ -295,7 +295,7 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 
 			stats->sync_responses++;
 
-			tx.tv_sec = (uint64_t)ntohs(*(uint32_t *)(data + 32)) << 16 |
+			tx.tv_sec = (uint64_t)ntohs(*(uint16_t *)(data + 34)) << 32 |
 					ntohl(*(uint32_t *)(data + 36));
 			tx.tv_nsec = ntohl(*(uint32_t *)(data + 40));
 			break;
