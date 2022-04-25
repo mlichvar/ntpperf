@@ -44,6 +44,7 @@ Other options:
         -t INTERVAL     specify sampling interval (2.0 seconds)
         -o CORRECTION   print offset between remote TX and local RX timestamp
                         with specified correction (e.g. network and RX delay)
+        -O              with -o use remote (RX+TX)/2 instead of TX timestamp
         -H              enable HW timestamping for TX offset statistics
         -S C2S,COOKIE   authenticate NTP requests with NTS
         -h              print this help message

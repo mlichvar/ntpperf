@@ -50,6 +50,7 @@ struct config {
 	double multiplier;
 	double sampling_interval;
 	double offset_correction;
+	bool offset_middle;
 	bool hw_timestamping;
 	struct {
 		const char *c2s;
@@ -351,9 +352,11 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 	}
 
 	if (config->offset_correction) {
-		if (!local_rx.tv_sec || !remote_tx.tv_sec)
+		if (!local_rx.tv_sec || !remote_tx.tv_sec || !remote_rx.tv_sec)
 			return true;
 		offset = diff_ts(&local_rx, &remote_tx) - config->offset_correction;
+		if (config->offset_middle)
+			offset += diff_ts(&remote_tx, &remote_rx) / 2;
 	} else {
 		if (!remote_tx.tv_sec || !remote_rx.tv_sec)
 			return true;
@@ -472,8 +475,10 @@ static void print_header(struct config *config) {
 
 	if (config->mode == PTP_DELAY)
 		offset = 0, printf("\n");
-	else if (config->offset_correction)
+	else if (config->offset_correction && !config->offset_middle)
 		offset = 1, printf("     TX timestamp offset (ns)\n");
+	else if (config->offset_correction)
+		offset = 1, printf("      (RX+TX)/2 offset (ns)\n");
 	else
 		offset = 1, printf("        response time (ns)\n");
 
@@ -592,7 +597,7 @@ int main(int argc, char **argv) {
 	config.multiplier = 1.5;
 	config.sampling_interval = 2.0;
 
-	while ((opt = getopt(argc, argv, "BID:N:i:s:d:m:r:p:elt:x:o:HS:h")) != -1) {
+	while ((opt = getopt(argc, argv, "BID:N:i:s:d:m:r:p:elt:x:o:OHS:h")) != -1) {
 		switch (opt) {
 			case 'B':
 				config.mode = NTP_BASIC;
@@ -660,6 +665,9 @@ int main(int argc, char **argv) {
 			case 'o':
 				config.offset_correction = atof(optarg);
 				break;
+			case 'O':
+				config.offset_middle = true;
+				break;
 			case 'H':
 				config.hw_timestamping = true;
 				break;
@@ -711,6 +719,7 @@ err:
 	fprintf(stderr, "\t-t INTERVAL     specify sampling interval (2.0 seconds)\n");
 	fprintf(stderr, "\t-o CORRECTION   print offset between remote TX and local RX timestamp\n");
 	fprintf(stderr, "\t                with specified correction (e.g. network and RX delay)\n");
+	fprintf(stderr, "\t-O              with -o use remote (RX+TX)/2 instead of TX timestamp\n");
 	fprintf(stderr, "\t-H              enable HW timestamping for TX offset statistics\n");
 #ifdef NTS
 	fprintf(stderr, "\t-S C2S,COOKIE   authenticate NTP requests with NTS\n");
