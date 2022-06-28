@@ -36,6 +36,7 @@ Network options:
         -m MAC          specify destination MAC address
 
 Other options:
+        -M              send multicast PTP delay requests to 224.0.1.129
         -r RATE[-RATE]  specify minimum and maximum rate (1000-1000000)
         -p NUMBER       specify number of processes to send requests (1)
         -e              make transmit interval exponentially distributed

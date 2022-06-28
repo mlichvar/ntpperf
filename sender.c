@@ -182,7 +182,8 @@ static int make_packet(struct sender_request *request, struct sender_config *con
 		*(uint16_t *)(buf + 0) = htons(0x0102);
 		*(uint16_t *)(buf + 2) = htons(data_len);
 		*(uint8_t *)(buf + 4) = config->ptp_domain;
-		buf[6] = 0x4;
+		buf[6] = config->ptp_mcast ? 0 : 0x4;
+		*(uint32_t *)(buf + 20) = htonl(request->src_address);
 		*(uint16_t *)(buf + 30) = request->local_id;
 		buf[32] = 0x1;
 		break;

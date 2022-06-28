@@ -34,6 +34,8 @@
 
 #define MAX_CLIENTS 16384
 
+#define PTP_MCAST_ADDR 0xe0000181 /* 224.0.1.129 */
+
 struct config {
 	enum request_mode mode;
 	char *interface;
@@ -42,6 +44,7 @@ struct config {
 	uint32_t src_network;
 	int src_bits;
 	int ptp_domain;
+	int ptp_mcast;
 	int min_rate;
 	int max_rate;
 	unsigned int senders;
@@ -234,6 +237,12 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 	dst_address = ntohl(*(uint32_t *)(data + 16));
 	src_port = ntohs(*(uint16_t *)(data + 20));
 	data += 28;
+
+	if (config->ptp_mcast) {
+		if (dst_address != PTP_MCAST_ADDR || (data[0] & 0xf) != 9)
+			return false;
+		dst_address = ntohl(*(uint32_t *)(data + 44));
+	}
 
 	if ((dst_address ^ config->src_network) >> (32 - config->src_bits))
 		return false;
@@ -533,8 +542,10 @@ static bool run_perf(struct config *config) {
 		return false;
 
 	memcpy(sender_config.dst_mac, config->dst_mac, 6);
-	sender_config.dst_address = config->dst_address;
+	sender_config.dst_address = config->ptp_mcast ?
+				    PTP_MCAST_ADDR : config->dst_address;
 	sender_config.ptp_domain = config->ptp_domain;
+	sender_config.ptp_mcast = config->ptp_mcast;
 	sender_config.nts.c2s = config->nts.c2s;
 	sender_config.nts.cookie = config->nts.cookie;
 
@@ -597,7 +608,7 @@ int main(int argc, char **argv) {
 	config.multiplier = 1.5;
 	config.sampling_interval = 2.0;
 
-	while ((opt = getopt(argc, argv, "BID:N:i:s:d:m:r:p:elt:x:o:OHS:h")) != -1) {
+	while ((opt = getopt(argc, argv, "BID:N:i:s:d:m:Mr:p:elt:x:o:OHS:h")) != -1) {
 		switch (opt) {
 			case 'B':
 				config.mode = NTP_BASIC;
@@ -637,6 +648,9 @@ int main(int argc, char **argv) {
 					   config.dst_mac + 4, config.dst_mac + 5) != 6)
 					goto err;
 				dst_mac_set = 1;
+				break;
+			case 'M':
+				config.ptp_mcast = 1;
 				break;
 			case 'r':
 				if ((s = strchr(optarg, '-'))) {
@@ -686,6 +700,7 @@ int main(int argc, char **argv) {
 	}
 
 	if (config.mode == INVALID_MODE || !config.interface || !dst_mac_set ||
+	    (config.ptp_mcast && config.mode != PTP_DELAY) ||
 	    !config.dst_address || config.src_bits < 8 || config.src_bits > 32 ||
 	    config.min_rate < 1 || config.multiplier < 1.0 || config.sampling_interval < 0.2 ||
 	    config.senders < 1 || config.senders > 16)
@@ -711,6 +726,7 @@ err:
 	fprintf(stderr, "\t-d IP-ADDRESS   specify destination IPv4 address\n");
 	fprintf(stderr, "\t-m MAC          specify destination MAC address\n");
 	fprintf(stderr, "\nOther options:\n");
+	fprintf(stderr, "\t-M              send multicast PTP delay requests\n");
 	fprintf(stderr, "\t-r RATE[-RATE]  specify minimum and maximum rate (1000-1000000)\n");
 	fprintf(stderr, "\t-p NUMBER       specify number of processes to send requests (1)\n");
 	fprintf(stderr, "\t-e              make transmit interval exponentially distributed\n");
