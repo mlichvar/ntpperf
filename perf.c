@@ -99,7 +99,7 @@ static pcap_t *open_pcap(struct config *config) {
 	}
 
 	if ((r = pcap_set_snaplen(pcap, 128)) ||
-	    (r = pcap_set_promisc(pcap, 0)) ||
+	    (r = pcap_set_promisc(pcap, config->ptp_mcast)) ||
 	    (r = pcap_set_timeout(pcap, 10)) ||
 	    (r = pcap_set_immediate_mode(pcap, 1)) ||
 	    (r = pcap_set_buffer_size(pcap, 1 << 24)) ||
