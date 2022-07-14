@@ -215,8 +215,8 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 	struct client *client;
 	struct timespec local_rx = { .tv_sec = header->ts.tv_sec, .tv_nsec = header->ts.tv_usec };
 	struct timespec prev_local_rx, prev_remote_rx, remote_rx = {0}, remote_tx = {0};
+	int src_port, dst_port, ptp_type = 0;
 	uint32_t dst_address;
-	int src_port, ptp_type = 0;
 	bool valid;
 	double offset;
 
@@ -236,6 +236,7 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 
 	dst_address = ntohl(*(uint32_t *)(data + 16));
 	src_port = ntohs(*(uint16_t *)(data + 20));
+	dst_port = ntohs(*(uint16_t *)(data + 22));
 	data += 28;
 
 	if (config->ptp_mcast) {
@@ -271,16 +272,16 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 		break;
 	case PTP_DELAY:
 	case PTP_NSM:
-		if (src_port != 319 && src_port != 320)
+		if (dst_port != 319 && dst_port != 320)
 			return false;
 
 		ptp_type = data[0] & 0xf;
 		valid = header->caplen >= 86 && data[1] == 2 &&
 			*(uint16_t *)(data + 30) == (uint16_t)client->local_id &&
-			((ptp_type == 9 && src_port == 320) ||
+			((ptp_type == 9 && dst_port == 320) ||
 			 (config->mode == PTP_NSM &&
-			  ((ptp_type == 0 && src_port == 319) ||
-			   (ptp_type == 8 && src_port == 320))));
+			  ((ptp_type == 0 && dst_port == 319) ||
+			   (ptp_type == 8 && dst_port == 320))));
 		if (!valid)
 			break;
 
