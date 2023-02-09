@@ -202,12 +202,24 @@ static struct timespec convert_ptp_ts(uint16_t hi, uint32_t mid, uint32_t lo) {
 
 static void make_request(struct sender_request *request, struct client *client, int index,
 			 struct config *config, struct timespec *when) {
+	int vclient_index;
+
 	request->when = *when;
 	request->src_address = config->src_network ^ (index % (1U << (32 - config->src_bits)));
 	request->_pad = 0;
 	request->remote_id = client->remote_id;
 	request->local_id = (uint64_t)random() << 32 | random();
-
+	request->local_id = (request->local_id & ~((2 << config->vclient_bits) - 2));
+	vclient_index = index >> (32 - config->src_bits);
+	/* Lowest bit used for interleave: */
+	request->local_id |= vclient_index << 1;
+	/*
+	printf ("make idx %d = v%d:%d => %016" PRIx64 "\n",
+		index,
+		vclient_index,
+		index & ((1 << (32 - config->src_bits)) - 1),
+		request->local_id);
+	*/
 	client->local_id = request->local_id;
 }
 
@@ -217,7 +229,8 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 	struct timespec local_rx = { .tv_sec = header->ts.tv_sec, .tv_nsec = header->ts.tv_usec };
 	struct timespec prev_local_rx, prev_remote_rx, remote_rx = {0}, remote_tx = {0};
 	int src_port, dst_port, ptp_type = 0;
-	uint32_t dst_address;
+	uint32_t dst_address, client_index;
+	uint64_t remote_vclient_index;
 	bool valid;
 	double offset;
 
@@ -246,10 +259,34 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 		dst_address = ntohl(*(uint32_t *)(data + 44));
 	}
 
+	switch (config->mode) {
+	case NTP_BASIC:
+	case NTP_INTERLEAVED:
+		remote_vclient_index = ((*(uint64_t *)(data + 24)) >> 1) &
+			((1U << config->vclient_bits) - 1);
+		break;
+	case PTP_DELAY:
+	case PTP_NSM:
+		remote_vclient_index = ((*(uint16_t *)(data + 30)) >> 1) &
+			((1U << config->vclient_bits) - 1);
+		break;
+	default:
+		assert(0);
+	}
+
 	if ((dst_address ^ config->src_network) >> (32 - config->src_bits))
 		return false;
 
-	client = &clients[(dst_address ^ config->src_network) % (uint32_t)num_clients];
+	client_index = ((dst_address ^ config->src_network) +
+			(remote_vclient_index << (32 - config->src_bits))) % (uint32_t)num_clients;
+	/*
+	printf ("recv %016" PRIx64 " => v%d:%d = idx %d\n",
+		*(uint64_t *)(data + 24),
+		(uint32_t) remote_vclient_index,
+		(dst_address ^ config->src_network),
+		client_index);
+	*/
+	client = &clients[client_index];
 	prev_remote_rx = client->remote_rx;
 	prev_local_rx = client->local_rx;
 
@@ -406,9 +443,9 @@ static bool measure_perf(struct config *config, pcap_t *pcap, int *senders, int 
 		num_clients = 1;
 	if (num_clients > MAX_CLIENTS)
 		num_clients = MAX_CLIENTS;
-	if (num_clients > 1U << (32 - config->src_bits)) {
+	if (num_clients > 1U << (32 - config->src_bits) << config->vclient_bits) {
 		fprintf(stderr, "Warning: source network might be too small for rate %d\n", rate);
-		num_clients = 1U << (32 - config->src_bits);
+		num_clients = 1U << (32 - config->src_bits) << config->vclient_bits;
 	}
 
 	assert(num_clients > 0 && num_clients <= MAX_CLIENTS);
