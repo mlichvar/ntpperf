@@ -43,6 +43,7 @@ struct config {
 	uint32_t dst_address;
 	uint32_t src_network;
 	int src_bits;
+	int vclient_bits;
 	int ptp_domain;
 	int ptp_mcast;
 	int min_rate;
@@ -608,8 +609,9 @@ int main(int argc, char **argv) {
 	config.senders = 1;
 	config.multiplier = 1.5;
 	config.sampling_interval = 2.0;
+	config.vclient_bits = 0;
 
-	while ((opt = getopt(argc, argv, "BID:N:i:s:d:m:Mr:p:elt:x:o:OHS:h")) != -1) {
+	while ((opt = getopt(argc, argv, "BID:N:i:s:d:m:Mk:r:p:elt:x:o:OHS:h")) != -1) {
 		switch (opt) {
 			case 'B':
 				config.mode = NTP_BASIC;
@@ -652,6 +654,9 @@ int main(int argc, char **argv) {
 				break;
 			case 'M':
 				config.ptp_mcast = 1;
+				break;
+			case 'k':
+				config.vclient_bits = atoi(optarg);
 				break;
 			case 'r':
 				if ((s = strchr(optarg, '-'))) {
@@ -728,6 +733,7 @@ err:
 	fprintf(stderr, "\t-m MAC          specify destination MAC address\n");
 	fprintf(stderr, "\nOther options:\n");
 	fprintf(stderr, "\t-M              send multicast PTP delay requests\n");
+	fprintf(stderr, "\t-k BITS         specify number of virtual client bits per IP\n");
 	fprintf(stderr, "\t-r RATE[-RATE]  specify minimum and maximum rate (1000-1000000)\n");
 	fprintf(stderr, "\t-p NUMBER       specify number of processes to send requests (1)\n");
 	fprintf(stderr, "\t-e              make transmit interval exponentially distributed\n");
