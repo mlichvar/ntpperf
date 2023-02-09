@@ -82,8 +82,8 @@ struct perf_stats {
 		int sync_responses;
 	};
 	int offset_updates;
-	double sum_offset;
-	double sum2_offset;
+	double sum_m_offset;
+	double sum_s_offset;
 	double min_offset;
 	double max_offset;
 };
@@ -218,7 +218,7 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 	int src_port, dst_port, ptp_type = 0;
 	uint32_t dst_address;
 	bool valid;
-	double offset;
+	double offset, delta;
 
 	if (header->caplen < 86)
 		return false;
@@ -374,8 +374,10 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 	}
 
 	stats->offset_updates++;
-	stats->sum_offset += offset;
-	stats->sum2_offset += offset * offset;
+	/* Accumulate for mean and variance using Welford's algorithm. */
+	delta = offset - stats->sum_m_offset;
+	stats->sum_m_offset += delta / stats->offset_updates;
+	stats->sum_s_offset += delta * (offset - stats->sum_m_offset);
 	if (stats->min_offset > offset)
 		stats->min_offset = offset;
 	if (stats->max_offset < offset)
@@ -494,7 +496,7 @@ static void print_header(struct config *config) {
 
 	printf("rate   clients |  lost invalid %15s |%s\n",
 	       config->mode <= NTP_INTERLEAVED ? "basic  xleave" : "delay sync/fw",
-	       offset ? "    min    mean     max    rms" : "");
+	       offset ? "    min    mean     max stddev" : "");
 }
 
 static int get_lost_packets(struct perf_stats *stats, struct config *config) {
@@ -521,10 +523,11 @@ static void print_stats(struct perf_stats *stats, struct config *config, int rat
 	       100.0 * stats->invalid_responses / stats->requests,
 	       100.0 * stats->basic_responses / stats->requests,
 	       100.0 * stats->interleaved_responses / stats->requests);
-	if (stats->offset_updates)
+	if (stats->offset_updates > 1)
 		printf("  %+7.0f %+7.0f %+7.0f %6.0f",
-		       1e9 * stats->min_offset, 1e9 * stats->sum_offset / stats->offset_updates,
-		       1e9 * stats->max_offset, 1e9 * sqrt(stats->sum2_offset / stats->offset_updates));
+		       1e9 * stats->min_offset, 1e9 * stats->sum_m_offset,
+		       1e9 * stats->max_offset,
+		       1e9 * sqrt(stats->sum_s_offset / (stats->offset_updates - 1.5)));
 	if (0)
 		printf(" | %7d", stats->requests);
 
