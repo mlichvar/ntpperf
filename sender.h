@@ -59,4 +59,61 @@ int sender_start(struct sender_config *config);
 bool sender_send_requests(int sender_fd, struct sender_request *requests, int num);
 void sender_stop(int sender_fd);
 
+#define GET_UNALIGNED(ptr) __extension__	\
+({						\
+	struct __attribute__((packed)) {	\
+            __typeof__(*(ptr)) __v;		\
+	} *__p = (__typeof__(__p)) (ptr);	\
+	__p->__v;				\
+})
+
+#define PUT_UNALIGNED(val, ptr)		\
+do {						\
+	struct __attribute__((packed)) {	\
+		__typeof__(*(ptr)) __v;		\
+	} *__p = (__typeof__(__p)) (ptr);	\
+	__p->__v = (val);			\
+} while(0)
+
+
+static inline uint8_t get_u8(const void *ptr)
+{
+	return *((const uint8_t *) ptr);
+}
+
+static inline void put_u8(uint8_t val, void *ptr)
+{
+	*((uint8_t *) ptr) = val;
+}
+
+static inline uint16_t get_u16(const void *ptr)
+{
+	return GET_UNALIGNED((const uint16_t *) ptr);
+}
+
+static inline uint32_t get_u32(const void *ptr)
+{
+	return GET_UNALIGNED((const uint32_t *) ptr);
+}
+
+static inline uint32_t get_u64(const void *ptr)
+{
+	return GET_UNALIGNED((const uint32_t *) ptr);
+}
+
+static inline void put_u16(uint16_t val, void *ptr)
+{
+	PUT_UNALIGNED(val, (uint16_t *) ptr);
+}
+
+static inline void put_u32(uint32_t val, void *ptr)
+{
+	PUT_UNALIGNED(val, (uint32_t *) ptr);
+}
+
+static inline void put_u64(uint64_t val, void *ptr)
+{
+	PUT_UNALIGNED(val, (uint64_t *) ptr);
+}
+
 #endif
