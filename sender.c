@@ -141,27 +141,28 @@ static int make_packet(struct sender_request *request, struct sender_config *con
 	/* Ethernet header */
 	memcpy(buf + 0, config->dst_mac, 6);
 	memcpy(buf + 6, config->src_mac, 6);
-	*(uint16_t *)(buf + 12) = htons(0x0800);
+	put_u16(htons(0x0800), buf + 12);
 	buf += 14, len += 14;
 
 	/* IP header */
 	memcpy(buf, "\x45\x00\x00\x00\xd7\xe9\x40\x00\x40\x11", 10);
-	*(uint16_t *)(buf + 2) = htons(20 + 8 + data_len);
-	*(uint32_t *)(buf + 12) = htonl(request->src_address);
-	*(uint32_t *)(buf + 16) = htonl(config->dst_address);
+	put_u16(htons(20 + 8 + data_len), buf + 2);
+	put_u32(htonl(request->src_address), buf + 12);
+	put_u32(htonl(config->dst_address), buf + 16);
 
-	for (i = 0; i < 10; i++)
-		sum += ((uint16_t *)buf)[i];
+	for (i = 0; i < 20; i += 2)
+		sum += get_u16(buf + i);
 	while ((carry = sum >> 16))
 		sum = (sum & 0xffff) + carry;
 
-	*(uint16_t *)(buf + 10) = ~sum;
+	put_u16(~sum, buf + 10);
+
 	buf += 20, len += 20;
 
 	/* UDP header and data */
-	*(uint16_t *)(buf + 0) = htons(src_port);
-	*(uint16_t *)(buf + 2) = htons(dst_port);
-	*(uint16_t *)(buf + 4) = htons(8 + data_len);
+	put_u16(htons(src_port), buf + 0);
+	put_u16(htons(dst_port), buf + 2);
+	put_u16(htons(8 + data_len), buf + 4);
 	buf += 8, len += 8;
 
 	assert(max_len >= len + data_len);
@@ -170,21 +171,21 @@ static int make_packet(struct sender_request *request, struct sender_config *con
 	case NTP_BASIC:
 	case NTP_INTERLEAVED:
 		buf[0] = 0xe3;
-		*(uint64_t *)(buf + 24) = request->remote_id;
-		*(uint64_t *)(buf + 32) = request->local_id ^ 1;
-		*(uint64_t *)(buf + 40) = request->local_id;
+		put_u64(request->remote_id, buf + 24);
+		put_u64(request->local_id ^ 1, buf + 32);
+		put_u64(request->local_id, buf + 40);
 		auth = buf + 48;
 		break;
 	case PTP_NSM:
-		*(uint32_t *)(buf + 44) = htonl(0x21fe0000);
+		put_u32(htonl(0x21fe0000), buf + 44);
 		/* Fall through */
 	case PTP_DELAY:
-		*(uint16_t *)(buf + 0) = htons(0x0102);
-		*(uint16_t *)(buf + 2) = htons(data_len);
-		*(uint8_t *)(buf + 4) = config->ptp_domain;
+		put_u16(htons(0x0102), buf + 0);
+		put_u16(htons(data_len), buf + 2);
+		put_u8(config->ptp_domain, buf + 4);
 		buf[6] = config->ptp_mcast ? 0 : 0x4;
-		*(uint32_t *)(buf + 20) = htonl(request->src_address);
-		*(uint16_t *)(buf + 30) = request->local_id;
+		put_u32(htonl(request->src_address), buf + 20);
+		put_u16(request->local_id, buf + 30);
 		buf[32] = 0x1;
 		break;
 	default:
@@ -196,27 +197,27 @@ static int make_packet(struct sender_request *request, struct sender_config *con
 		size_t clen;
 
 		/* Unique Identifier */
-		*(uint16_t *)(auth + 0) = htons(0x0104);
-		*(uint16_t *)(auth + 2) = htons(4 + 32);
-		*(uint32_t *)(auth + 4) = random();
-		*(uint32_t *)(auth + 8) = random();
+		put_u16(htons(0x0104), auth + 0);
+		put_u16(htons(4 + 32), auth + 2);
+		put_u32(random(), auth + 4);
+		put_u32(random(), auth + 8);
 		auth += 4 + 32;
 
 		/* Cookie */
-		*(uint16_t *)(auth + 0) = htons(0x0204);
-		*(uint16_t *)(auth + 2) = htons(4 + nts->cookie_len);
+		put_u16(htons(0x0204), auth + 0);
+		put_u16(htons(4 + nts->cookie_len), auth + 2);
 		memcpy(auth + 4, nts->cookie, nts->cookie_len);
 		auth += 4 + nts->cookie_len;
 
 		/* Authenticator */
-		*(uint16_t *)(auth + 0) = htons(0x0404);
-		*(uint16_t *)(auth + 2) = htons(4 + 4 + 16 + 16);
-		*(uint16_t *)(auth + 4) = htons(16);
-		*(uint16_t *)(auth + 6) = htons(16);
-		*(uint32_t *)(auth + 8) = random();
-		*(uint32_t *)(auth + 12) = random();
-		*(uint32_t *)(auth + 16) = random();
-		*(uint32_t *)(auth + 20) = random();
+		put_u16(htons(0x0404), auth + 0);
+		put_u16(htons(4 + 4 + 16 + 16), auth + 2);
+		put_u16(htons(16), auth + 4);
+		put_u16(htons(16), auth + 6);
+		put_u32(random(), auth + 8);
+		put_u32(random(), auth + 12);
+		put_u32(random(), auth + 16);
+		put_u32(random(), auth + 20);
 		clen = 16;
 		if (gnutls_aead_cipher_encrypt(nts->cipher,
 					       auth + 4 + 4, 16, buf, auth - buf, 0,
