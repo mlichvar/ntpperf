@@ -226,23 +226,23 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 	if (memcmp(config->dst_mac, data + 6, 6))
 		return false;
 
-	if (ntohs(*(uint16_t *)(data + 12)) != 0x0800)
+	if (ntohs(get_u16(data + 12)) != 0x0800)
 		return false;
 
 	data += 14;
 	if (data[0] >> 4 != 4 || (data[0] & 0xf) != 5 || data[9] != 17 ||
-	    ntohl(*(uint32_t *)(data + 12)) != config->dst_address)
+	    ntohl(get_u32(data + 12)) != config->dst_address)
 		return false;
 
-	dst_address = ntohl(*(uint32_t *)(data + 16));
-	src_port = ntohs(*(uint16_t *)(data + 20));
-	dst_port = ntohs(*(uint16_t *)(data + 22));
+	dst_address = ntohl(get_u32(data + 16));
+	src_port = ntohs(get_u16(data + 20));
+	dst_port = ntohs(get_u16(data + 22));
 	data += 28;
 
 	if (config->ptp_mcast) {
 		if (dst_address != PTP_MCAST_ADDR || (data[0] & 0xf) != 9)
 			return false;
-		dst_address = ntohl(*(uint32_t *)(data + 44));
+		dst_address = ntohl(get_u32(data + 44));
 	}
 
 	if ((dst_address ^ config->src_network) >> (32 - config->src_bits))
@@ -259,14 +259,14 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 			return false;
 
 		valid = header->caplen >= 90 && (data[0] & 0x7) == 0x4 &&
-			(*(uint64_t *)(data + 24) & -2ULL) == (client->local_id & -2ULL) &&
+			(get_u64(data + 24) & -2ULL) == (client->local_id & -2ULL) &&
 			(!config->nts.cookie || header->len > 90 + 4 + 32 + 4 + 16 + 16 + 4);
 		if (valid) {
 			if (config->mode == NTP_INTERLEAVED)
-				client->remote_id = *(uint64_t *)(data + 32);
+				client->remote_id = get_u64(data + 32);
 			else
-				client->remote_id = *(uint64_t *)(data + 40);
-			client->remote_rx = convert_ntp_ts(*(uint64_t *)(data + 32));
+				client->remote_id = get_u64(data + 40);
+			client->remote_rx = convert_ntp_ts(get_u64(data + 32));
 			client->local_rx = local_rx;
 		}
 		break;
@@ -277,7 +277,7 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 
 		ptp_type = data[0] & 0xf;
 		valid = header->caplen >= 86 && data[1] == 2 &&
-			*(uint16_t *)(data + 30) == (uint16_t)client->local_id &&
+			get_u16(data + 30) == (uint16_t)client->local_id &&
 			((ptp_type == 9 && dst_port == 320) ||
 			 (config->mode == PTP_NSM &&
 			  ((ptp_type == 0 && dst_port == 319) ||
@@ -290,9 +290,9 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 			client->local_rx = local_rx;
 			break;
 		case 9:
-			client->remote_rx = convert_ptp_ts(*(uint16_t *)(data + 34),
-							   *(uint32_t *)(data + 36),
-							   *(uint32_t *)(data + 40));
+			client->remote_rx = convert_ptp_ts(get_u16(data + 34),
+							   get_u32(data + 36),
+							   get_u32(data + 40));
 			/* Fall through */
 		case 8:
 			memset(&client->local_rx, 0, sizeof client->local_rx);
@@ -317,7 +317,7 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 	switch (config->mode) {
 	case NTP_BASIC:
 	case NTP_INTERLEAVED:
-		if (*(uint64_t *)(data + 24) == client->local_id) {
+		if (get_u64(data + 24) == client->local_id) {
 			stats->basic_responses++;
 			if (config->mode != NTP_BASIC)
 				return true;
@@ -330,7 +330,7 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 			local_rx = prev_local_rx;
 		}
 
-		remote_tx = convert_ntp_ts(*(uint64_t *)(data + 40));
+		remote_tx = convert_ntp_ts(get_u64(data + 40));
 		break;
 	case PTP_DELAY:
 	case PTP_NSM:
@@ -346,9 +346,9 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 			stats->sync_responses++;
 
 			remote_rx = client->remote_rx;
-			remote_tx = convert_ptp_ts(*(uint16_t *)(data + 34),
-						   *(uint32_t *)(data + 36),
-						   *(uint32_t *)(data + 40));
+			remote_tx = convert_ptp_ts(get_u16(data + 34),
+						   get_u32(data + 36),
+						   get_u32(data + 40));
 			break;
 		case 9:
 			stats->delay_responses++;
