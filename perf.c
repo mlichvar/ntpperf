@@ -215,7 +215,7 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 	struct client *client;
 	struct timespec local_rx = { .tv_sec = header->ts.tv_sec, .tv_nsec = header->ts.tv_usec };
 	struct timespec prev_local_rx, prev_remote_rx, remote_rx = {0}, remote_tx = {0};
-	int src_port, dst_port, ptp_type = 0;
+	int src_port, dst_port, ptp_type = 0, ptp_maj_ver = 0;
 	uint32_t dst_address;
 	bool valid;
 	double offset, delta;
@@ -276,7 +276,8 @@ static bool process_response(struct pcap_pkthdr *header, const u_char *data, str
 			return false;
 
 		ptp_type = data[0] & 0xf;
-		valid = header->caplen >= 86 && data[1] == 2 &&
+		ptp_maj_ver = data[1] & 0xf;
+		valid = header->caplen >= 86 && ptp_maj_ver == 2 &&
 			*(uint16_t *)(data + 30) == (uint16_t)client->local_id &&
 			((ptp_type == 9 && dst_port == 320) ||
 			 (config->mode == PTP_NSM &&
